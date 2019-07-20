@@ -1,0 +1,12 @@
+{
+    "name": "Citra plugin",
+    "platform": "3ds",
+    "guid": "c6596e5a-5f3a-4681-942a-746433f255ff",
+    "version": "0.1",
+    "description": "Citra plugin",
+    "author": "Selby",
+    "email": "jselby@jselby.net",
+    "url": "https://github.com/j-selby/galaxy-integration-citra",
+    "update_url": "https://raw.githubusercontent.com/j-selby/galaxy-integration-citra/master/current_version.json",
+    "script": "plugin.py"
+}
