@@ -17,7 +17,7 @@ from galaxy.api.consts import Platform, LocalGameState
 
 # Manually override if you dare
 roms_path = ""
-
+emulator_path = ""
 
 class AuthenticationHandler(BaseHTTPRequestHandler):
     def _set_headers(self, content_type='text/html'):
@@ -30,8 +30,9 @@ class AuthenticationHandler(BaseHTTPRequestHandler):
             self._set_headers()
             parse_result = urlparse(self.path)
             params = parse_qs(parse_result.query)
-            global roms_path
+            global roms_path, emulator_path
             roms_path = params['path'][0]
+			emulator_path = params['emulator_path'][0]
             self.wfile.write("<script>window.location=\"/end\";</script>".encode("utf8"))
             return
 
@@ -104,7 +105,14 @@ class AuthenticationHandler(BaseHTTPRequestHandler):
                         <input class="input" name="path" type="text" class="has-text-light" placeholder="Enter absolute path">
                       </div>
                     </div>
-                    
+
+					<div class="field">
+                      <label class="label has-text-light">Citra Location</label>
+                      <div class="control">
+                        <input class="input" name="emulator_path" type="text" class="has-text-light" placeholder="Enter absolute Citra path">
+                      </div>
+                    </div>
+
                     <div class="field is-grouped">
                       <div class="control">
                         <input type="submit" class="button is-link" value="Enable Plugin" />
@@ -133,7 +141,7 @@ class CitraPlugin(Plugin):
     def __init__(self, reader, writer, token):
         super().__init__(
             Platform.Nintendo3Ds,  # Choose platform from available list
-            "0.1",  # Version
+            "0.2",  # Version
             reader,
             writer,
             token
@@ -153,13 +161,14 @@ class CitraPlugin(Plugin):
         # Find game - lookup table would be good :P
         for game in self.games:
             if game.program_id == game_id:
-                subprocess.Popen([join(environ['LOCALAPPDATA'], "Citra\\nightly-mingw\\citra-qt.exe"), game.path])
+                subprocess.Popen([emulator_path + "/citra-qp.exe", game.path])
                 break
         return
 
     def finish_login(self):
         some_dict = dict()
         some_dict["roms_path"] = roms_path
+		some_dict["emulator_path"] = emulator_path
         self.store_credentials(some_dict)
 
         self.parse_games()
@@ -172,7 +181,10 @@ class CitraPlugin(Plugin):
         if len(roms_path) == 0 and stored_credentials is not None and "roms_path" in stored_credentials:
             roms_path = stored_credentials["roms_path"]
 
-        if len(roms_path) == 0:
+        if len(emulator_path) == 0 and stored_credentials is not None and "emulator_path" in stored_credentials:
+            emulator_path = stored_credentials["emulator_path"]
+
+        if len(roms_path) == 0 or len(emulator_path) == 0:
             PARAMS = {
                 "window_title": "Configure Citra Plugin",
                 "window_width": 400,
@@ -288,7 +300,13 @@ def probe_game(path):
 
 def get_files_in_dir(path):
     from os.path import isfile, join
-    return [join(path, f) for f in listdir(path) if isfile(join(path, f))]
+	from os import walk
+	files = walk(path)
+	games_path = []
+    for root, dirs, files in walk(path):
+        for file in files:
+            games_path.append(join(root, file))
+    return games_path
 
 
 def get_games(path):
