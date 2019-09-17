@@ -1,11 +1,20 @@
-# Citra Plugin for GOG Galaxy
+# Citra Plugin for GOG Galaxy 2.0
 
-Requires Citra Nightly to be installed.
+Requires Citra to be installed.
+
+## Features
+
+* Library: Nintendo 3DS games in your ROM folder
+* Launch: Launches games with Citra in Fullscreen
 
 ## Installation
 
-Download this repo as a folder to 
-`%localappdata%\GOG.com\Galaxy\plugins\installed\citra`
+Download the latest release and extract it to:
+- (WINDOWS) `%localappdata%\GOG.com\Galaxy\plugins\installed\galaxy-integration-cemu`
+- (MACOS) `~/Library/Application Support/GOG.com/Galaxy/plugins/installed/galaxy-integration-cemu`
+
+i.e 
+`C:\Users\Leonard\AppData\Local\GOG.com\Galaxy\plugins\installed\galaxy-integration-cemu`
 
 
 ## License
