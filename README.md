@@ -10,11 +10,11 @@ Requires Citra to be installed.
 ## Installation
 
 Download the latest release and extract it to:
-- (WINDOWS) `%localappdata%\GOG.com\Galaxy\plugins\installed\galaxy-integration-cemu`
+- (WINDOWS) `%localappdata%\GOG.com\Galaxy\plugins\installed\galaxy-integration-citra`
 - (MACOS) `~/Library/Application Support/GOG.com/Galaxy/plugins/installed/galaxy-integration-cemu`
 
 i.e 
-`C:\Users\Leonard\AppData\Local\GOG.com\Galaxy\plugins\installed\galaxy-integration-cemu`
+`C:\Users\Leonard\AppData\Local\GOG.com\Galaxy\plugins\installed\galaxy-integration-citra`
 
 
 ## License

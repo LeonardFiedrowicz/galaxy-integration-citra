@@ -1,23 +1,25 @@
-import sys
+import sys, asyncio, logging, time, json
 
 import subprocess
 import struct
 import threading
 from http.server import HTTPServer, BaseHTTPRequestHandler
 
-from os import listdir, environ
+import os, os.path
 
 from dataclasses import dataclass
 
 from urllib.parse import parse_qs, urlparse
 
 from galaxy.api.plugin import Plugin, create_and_run_plugin
-from galaxy.api.types import Game, LicenseInfo, LicenseType, Authentication, LocalGame, NextStep
+from galaxy.api.types import Game, LicenseInfo, LicenseType, Authentication, LocalGame, NextStep, GameTime
 from galaxy.api.consts import Platform, LocalGameState
+from time_tracker import TimeTracker
 
 # Manually override if you dare
 roms_path = ""
 emulator_path = ""
+
 
 class AuthenticationHandler(BaseHTTPRequestHandler):
     def _set_headers(self, content_type='text/html'):
@@ -102,17 +104,16 @@ class AuthenticationHandler(BaseHTTPRequestHandler):
                     <div class="field">
                       <label class="label has-text-light">Games Location</label>
                       <div class="control">
-                        <input class="input" name="path" type="text" class="has-text-light" placeholder="Enter absolute Games path">
+                            <input class="input" name="path" type="text" class="has-text-light" placeholder="Enter absolute Games path">
                       </div>
                     </div>
-
                     <div class="field">
                       <label class="label has-text-light">Citra Location</label>
                       <div class="control">
                         <input class="input" name="emulator_path" type="text" class="has-text-light" placeholder="Enter absolute Citra path">
                       </div>
                     </div>
-
+                    
                     <div class="field is-grouped">
                       <div class="control">
                         <input type="submit" class="button is-link" value="Enable Plugin" />
@@ -141,12 +142,15 @@ class CitraPlugin(Plugin):
     def __init__(self, reader, writer, token):
         super().__init__(
             Platform.Nintendo3Ds,  # Choose platform from available list
-            "0.2",  # Version
+            "0.3",  # Version
             reader,
             writer,
             token
         )
         self.games = []
+        self.time_tracker = TimeTracker()
+        self.proc = None
+        self.running_game = None
         self.server = AuthenticationServer()
         self.server.start()
 
@@ -156,14 +160,109 @@ class CitraPlugin(Plugin):
     def shutdown(self):
         self.server.httpd.shutdown()
 
+    async def install_game(self, game_id):
+        pass
+
+    async def uninstall_game(self, game_id):
+        pass
+
+    async def prepare_game_times_context(self, game_ids):
+        logging.debug("preparing game time dict")
+        return self._get_games_times_dict()
+
     async def launch_game(self, game_id):
         from os.path import join
         # Find game - lookup table would be good :P
         for game in self.games:
             if game.program_id == game_id:
-                subprocess.Popen([emulator_path + "/citra-qt.exe", game.path])
+                self.update_local_game_status(LocalGame(game_id, 2))
+                self.proc = subprocess.Popen([emulator_path + "/citra-qt.exe", game.path])
+                self.running_game = game_id
+                self.time_tracker._set_session_start()
                 break
         return
+
+    def tick(self):
+        try:
+            #logging.debug("polling status: " + str(poll))
+            if self.proc.poll() is not None:
+                logging.debug("game closed")
+                self.update_local_game_status(LocalGame(self.running_game, 1))
+                self.time_tracker._set_session_end()
+                session_duration = self.time_tracker._get_session_duration()
+                logging.debug("game time: "+str(session_duration)+" minutes")
+                last_time_played = int(time.time())
+                self._update_game_time(self.running_game, session_duration, last_time_played)
+                self.proc = None
+                self.running_game = None
+        except AttributeError:
+            pass
+
+    async def get_game_time(self, game_id, context):
+        game_time = context.get(game_id)
+        return game_time
+
+    def _update_game_time(self, game_id, session_duration, last_time_played) -> None:
+        ''' Returns None 
+        
+        Update the game time of a single game
+        '''
+        try:
+            base_dir = os.path.dirname(os.path.realpath(__file__))
+            game_times_path = "{}/3ds_game_times.json".format(base_dir)
+
+            with open(game_times_path, encoding="utf-8") as game_times_file:
+                data = json.load(game_times_file)
+
+            data[game_id]["time_played"] = data.get(game_id).get("time_played") + session_duration
+            data[game_id]["last_time_played"] = last_time_played
+
+            with open(game_times_path, "w", encoding="utf-8") as game_times_file:
+                json.dump(data, game_times_file, indent=4)
+
+            self.update_game_time(GameTime(game_id, data.get(game_id).get("time_played"), last_time_played))
+
+        except FileNotFoundError:
+            logging.error("game times file not found")
+            pass
+
+    async def _update_all_game_times(self) -> None:
+        await asyncio.sleep(60) # Leave time for Galaxy to fetch games before updating times
+        loop = asyncio.get_running_loop()
+        new_game_times = await loop.run_in_executor(None, self._get_games_times_dict)
+        for game_time in new_game_times:
+            self.update_game_time(new_game_times[game_time])
+
+    def _get_games_times_dict(self) -> dict:
+        ''' Returns a dict of GameTime objects
+        
+        Creates and reads the game_times.json file
+        '''
+        base_dir = os.path.dirname(os.path.realpath(__file__))
+        data = {}
+        game_times = {}
+        path = "{}/3ds_game_times.json".format(base_dir)
+        
+        # Check if the file exists, otherwise create it with defaults
+        if not os.path.exists(path):
+            logging.debug("no game times file, creating new one")
+            for game in self.games:
+                data[game.program_id] = { "name": game.game_title, "time_played": 0, "last_time_played": None }
+
+            with open(path, "w", encoding="utf-8") as game_times_file:
+                json.dump(data, game_times_file, indent=4)
+        
+        # Now read it and return the game times
+        with open(path, encoding="utf-8") as game_times_file:
+            parsed_game_times_file = json.load(game_times_file)
+
+        for entry in parsed_game_times_file:
+            game_id = entry
+            time_played = parsed_game_times_file.get(entry).get("time_played")
+            last_time_played = parsed_game_times_file.get(entry).get("last_time_played")
+            game_times[game_id] = GameTime(game_id, time_played, last_time_played)
+
+        return game_times
 
     def finish_login(self):
         some_dict = dict()
@@ -205,7 +304,7 @@ class CitraPlugin(Plugin):
             license_info = LicenseInfo(LicenseType.OtherUserLicense, None)
             owned_games.append(Game(game_id=game.program_id, game_title=game.game_title, dlcs=None,
                         license_info=license_info))
-
+        logging.debug("owned games: "+str(owned_games))
         return owned_games
 
     async def get_local_games(self):
@@ -307,7 +406,6 @@ def get_files_in_dir(path):
         for file in files:
             games_path.append(join(root, file))
     return games_path
-
 
 def get_games(path):
     games_path = get_files_in_dir(path)
